@@ -1,0 +1,134 @@
+# =====================================================================
+# slave2.parm  -  Swarm SLAVE, SYSID 2
+# ArduCopter 4.5.x / 4.6.x  -  load AFTER frame setup, accel/compass/
+# radio/ESC calibration, harmonic notch and AUTOTUNE are complete.
+# WiFi telemetry module is assumed on SERIAL1 (TELEM1) -> SR1_*. If it is
+# on another port, rename SERIAL1_/SR1_ to that port number.
+# Names drift between releases: after loading, check the GCS report of
+# unrecognised parameters (e.g. GPS_RATE_MS became GPS1_RATE_MS in 4.6,
+# SYSID_MYGCS may appear as MAV_GCS_SYSID in newer firmware).
+# Battery voltages assume a 6S LiPo - CHANGE THEM for your pack.
+# Comments are on their own lines on purpose (some loaders reject
+# inline comments).
+# =====================================================================
+
+# ---- Identity ----------------------------------------------------
+SYSID_THISMAV,2
+# heartbeats from THIS sysid (swarm_gcs.py) feed the GCS failsafe.
+# QGC/MP (255) heartbeats therefore can't mask a dead script.
+SYSID_MYGCS,250
+
+# ---- Telemetry port + stream rates (Hz) --------------------------
+SERIAL1_PROTOCOL,2
+# MUST match the WiFi module's UART baud (115 = 115200, 921 = 921600)
+SERIAL1_BAUD,115
+SR1_POSITION,10
+SR1_EXT_STAT,2
+SR1_EXTRA1,2
+SR1_EXTRA2,1
+SR1_EXTRA3,2
+SR1_RC_CHAN,0
+SR1_RAW_SENS,0
+SR1_RAW_CTRL,0
+SR1_ADSB,0
+SR1_PARAMS,10
+
+# ---- GPS / EKF: GPS + baro only ------------------------------------
+GPS_AUTO_CONFIG,1
+# 5 Hz; 100 (10 Hz) only if your module sustains it with all constellations
+GPS_RATE_MS,200
+# stricter than default 140 -> won't arm on a mediocre fix
+GPS_HDOP_GOOD,120
+AHRS_EKF_TYPE,3
+EK3_ENABLE,1
+# 3 = GPS, 1 = baro, 1 = compass
+EK3_SRC1_POSXY,3
+EK3_SRC1_VELXY,3
+EK3_SRC1_POSZ,1
+EK3_SRC1_VELZ,3
+EK3_SRC1_YAW,1
+ARMING_CHECK,1
+
+# ---- Failsafes common to all ------------------------------------
+# RC loss -> RTL
+FS_THR_ENABLE,1
+FS_THR_VALUE,975
+# EKF/GPS failure -> LAND (straight down = away from aircraft above)
+FS_EKF_ACTION,1
+FS_EKF_THRESH,0.8
+FS_VIBE_ENABLE,1
+FS_CRASH_CHECK,1
+# battery: sag-compensated voltage, low -> RTL, critical -> LAND
+BATT_FS_VOLTSRC,1
+BATT_LOW_TIMER,10
+BATT_LOW_VOLT,21.0
+BATT_CRT_VOLT,19.8
+BATT_FS_LOW_ACT,2
+BATT_FS_CRT_ACT,1
+
+# ---- RTL: straight up to own layer, straight home, land on own pad ----
+# cone slope 0 = never lower RTL_ALT near home (keeps layers intact)
+RTL_CONE_SLOPE,0
+RTL_CLIMB_MIN,0
+RTL_ALT_FINAL,0
+RTL_LOIT_TIME,2000
+LAND_SPEED,50
+
+# ---- Geofence: max alt + circle + polygon ------------------------
+FENCE_ENABLE,1
+FENCE_TYPE,7
+FENCE_MARGIN,3
+
+# ---- Slave-specific failsafes ------------------------------------
+# no heartbeat from swarm_gcs.py for 5 s -> RTL on own layer
+FS_GCS_ENABLE,1
+FS_GCS_TIMEOUT,5
+# GUIDED: velocity feed-forward dropped 3 s after targets stop
+GUID_TIMEOUT,3
+
+# ---- Speed / accel: must out-run and out-accelerate the master ----
+WPNAV_SPEED,1000
+WPNAV_ACCEL,400
+WPNAV_SPEED_UP,250
+WPNAV_SPEED_DN,150
+ANGLE_MAX,3000
+
+# ---- RTL: UNIQUE altitude per slave, above all swarm layers --------
+# slave2 50 m, slave3 55 m, slave4 60 m, slave5 65 m
+RTL_ALT,5000
+RTL_SPEED,500
+
+# ---- Fence (larger than master's so only a real fault trips it) ----
+FENCE_ALT_MAX,75
+# keep INSIDE your measured WiFi range (range-test before flying!)
+FENCE_RADIUS,110
+# 1 = RTL (on own layer)
+FENCE_ACTION,1
+
+# ---- ELRS receiver (bound to the shared SAFETY TX, telemetry ratio OFF) ----
+# CRSF on the UART the ELRS RX is wired to. Change 2 if it's elsewhere.
+SERIAL2_PROTOCOL,23
+RSSI_TYPE,3
+
+# ---- Safety transmitter switches -----------------------------------
+# ch5 is unused by ArduPilot here (ELRS uses it as its own arm flag:
+# keep that switch HIGH in flight so ELRS settings are locked).
+# ch6 3-pos: low = GUIDED, mid = BRAKE (freeze), high = LAND
+FLTMODE_CH,6
+FLTMODE1,4
+FLTMODE2,4
+FLTMODE3,17
+FLTMODE4,17
+FLTMODE5,9
+FLTMODE6,9
+# ch7 = motor emergency stop (LAST resort - aircraft will fall)
+RC7_OPTION,31
+# the safety TX sticks reach all four slaves: never let them nudge a landing
+LAND_REPOSITION,0
+
+# ---- Safety TX lost (RC failsafe) ------------------------------------
+# FS_THR_ENABLE,1 above = RTL on this slave's own layer. All four slaves
+# lose the safety TX together, so all four RTL together - safe because
+# every RTL_ALT is unique. If you would rather the script keep flying
+# them (you lose your manual override until the link is back), add:
+#   FS_OPTIONS,4      (bit 2 = continue in GUIDED on RC failsafe)
