@@ -1,6 +1,8 @@
 # 5-Drone ArduPilot Swarm: Setup and Operating Guide
 
-One master quad flown by a pilot, four slave quads flown in formation by `swarm_gcs.py` on the GCS laptop. GPS and barometer only. MAVLink runs over WiFi (one UDP port per drone). RC runs over ELRS: the pilot's own TX for the master, and one shared "safety TX" broadcasting to all four slaves.
+One master quad flown by a pilot, four slave quads flown in formation by `swarm_gcs.py` on the GCS laptop. GPS and barometer only.
+
+**Airframe (all five identical):** 7-inch quad, 6S, MicoAir743 flight-controller stack, GEPRC GEP-M1025 GPS, RadioMaster RP3 ELRS receiver, WiFi telemetry module. MAVLink runs over WiFi (one UDP port per drone). RC runs over ELRS: the pilot's own TX for the master, and one shared "safety TX" broadcasting to all four slaves.
 
 > **Status:** the controller is bench-tested against the kinematic mock only. Your first real validation is ArduPilot SITL (Step 2). Do not skip any step in order.
 
@@ -14,7 +16,10 @@ One master quad flown by a pilot, four slave quads flown in formation by `swarm_
 | `start_links.sh` | Starts five MAVProxy routers (one per drone) for the real WiFi links | GCS laptop |
 | `sitl_swarm.sh` | Starts five ArduCopter SITL simulators wired exactly like the real system | GCS laptop |
 | `mock_fleet.py` | Fast, crude 5-drone fake for testing the script's logic in seconds | GCS laptop |
-| `run_mock_tests.py` | Automated mock tests: nominal, master GPS loss, slave link loss | GCS laptop |
+| `run_mock_tests.py` | Automated mock tests: nominal, master GPS loss, slave link loss. Exit code 0 = pass. | GCS laptop, GitHub Actions |
+| `.github/workflows/mock-tests.yml` | Runs the mock tests on GitHub on every push | GitHub |
+| `.gitignore` | Keeps flight logs (they contain GPS locations) and secrets out of the repo | Git |
+| `params/hardware_micoair743.parm` | Base hardware setup: frame, motors, GPS, RC, compass, battery. Same on all five. | Load onto every FC first, during the build |
 | `params/master.parm` | ArduPilot parameters for the master (sysid 1) | Load onto master FC |
 | `params/slave2.parm` … `slave5.parm` | Parameters for each slave (sysid 2–5, unique RTL altitudes) | Load onto each slave FC |
 
@@ -46,7 +51,15 @@ pip install pymavlink MAVProxy
 # QGroundControl: download the AppImage from qgroundcontrol.com
 ```
 
-**Per drone:** 7-inch quad with an ArduCopter 4.5/4.6 flight controller, GPS with compass, a WiFi telemetry module on TELEM1 (SERIAL1), and an ELRS receiver on SERIAL2.
+**Per drone:**
+
+| Part | Model | Connects to |
+|---|---|---|
+| Flight controller + 4-in-1 ESC | MicoAir743 stack (v1 or v2), ArduCopter 4.5/4.6 | — |
+| GPS | GEPRC GEP-M1025**Q** recommended (with compass) | UART3 + I2C (SDA/SCL) |
+| RC receiver | RadioMaster RP3, ELRS 2.4 GHz | UART6 (RX6 and TX6) |
+| Telemetry | WiFi module (ESP32/ESP8266 MAVLink bridge) | UART1 |
+| Battery | 6S LiPo | Stack power input |
 
 **Ground:** a dedicated outdoor WiFi access point on a mast (not a phone hotspot), an Ethernet cable from the AP to the laptop, one ELRS transmitter for the pilot, and a second ELRS transmitter as the slave safety TX.
 
@@ -70,9 +83,10 @@ This proves the software runs on your laptop and lets you learn the CLI.
 python3 run_mock_tests.py nominal   # joins V, switches to diamond, then line
 python3 run_mock_tests.py gps       # master GPS fails -> HOLD, then staggered RTL at +15 s
 python3 run_mock_tests.py link      # slave 3 link dies -> HOLD, heartbeats withheld at +8 s
+python3 run_mock_tests.py all       # all three (~4 minutes)
 ```
 
-Each prints the minimum 3-D separation. Details go to `ctrl_<test>.log` and `mock_<test>.out`.
+Each test prints PASS or FAIL with a checklist, and exits with code 1 on failure. Details go to `ctrl_<test>.log` and `mock_<test>.out`.
 
 **Interactive:**
 
@@ -133,14 +147,49 @@ Note: in SITL, flight-mode changes come from QGC and the script, not RC switches
 
 ## 5. Step 3: Build and configure each drone
 
-Do this for each quad individually, before loading any swarm parameters:
+Do this for each quad individually, before loading any swarm-role parameters.
 
-1. Build the frame. Mount the GPS on a mast, and keep the WiFi module at least 10 cm from the GPS antenna.
-2. Wiring: WiFi module on TELEM1 (SERIAL1). Power the module from a BEC, not the FC's telemetry 5 V pad. ELRS receiver on SERIAL2 (TX↔RX crossed).
-3. Standard ArduPilot setup: frame type, accelerometer, compass, radio, ESC calibration, battery monitor.
-4. Tune: harmonic notch, then a full AUTOTUNE. Tracking error is part of the separation budget, so a badly tuned slave is a collision risk.
+### Identify your board version and flash ArduCopter
 
-### Load the swarm parameters
+The MicoAir743 comes in two versions whose UART numbering differs. Check the label on the board:
+
+| | MicoAir743 (v1) | MicoAir743v2 |
+|---|---|---|
+| Firmware target | `MicoAir743` | `MicoAir743v2` |
+| Onboard compass | IST8310 | QMC5883L |
+| RC input (UART6) | SERIAL5 | SERIAL6 |
+| ESC telemetry (UART7) | SERIAL6 | SERIAL7 |
+| Extra | — | Bluetooth module on SERIAL8 |
+
+First flash: hold the boot button, plug in USB, and load the `..._with_bl.hex` for your board with a DFU tool (STM32CubeProgrammer, or Mission Planner's bootloader option). After that, update from QGC or Mission Planner as usual. The same firmware version must go on all five quads.
+
+### Wiring
+
+| Device | Pads | Notes |
+|---|---|---|
+| WiFi module | UART1: TX1 → module RX, RX1 → module TX, 5 V from a BEC | Not the FC telemetry 5 V pad if the module draws spikes |
+| GEP-M1025 GPS | UART3: TX3 → GPS RX, RX3 → GPS TX, 5 V, GND; SDA/SCL for the compass | Mast-mounted, arrow forward, away from ESC and battery leads |
+| RP3 receiver | UART6: RX6 ← RP3 TX, TX6 → RP3 RX, 5 V, GND | Both wires: CRSF is two-way. The SBUS pad is not used. |
+| HD VTX (if any) | The board's DisplayPort connector (UART2) | Leave UART2 as DisplayPort |
+
+**Antenna spacing** matters with 2.4 GHz everywhere on this airframe (see section 7). Keep the RP3 antennas, the WiFi antenna and the GPS as far apart as the frame allows: RP3 at the rear, WiFi module on a front arm, GPS on a mast in the middle. Aim for at least 10 cm between any two.
+
+### The compass question (plain M1025 vs M1025Q)
+
+The plain GEP-M1025 has **no compass**; the Q variants have a QMC5883L. On a 7-inch quad the board's internal compass sits right next to the ESC current, so relying on it gives poor heading. For a slave, bad heading shows up as circling ("toilet-bowling") in its slot, which eats into the separation budget.
+
+- **M1025Q (recommended):** after calibration, keep only the external compass. Untick the internal one on the GCS compass page, then run COMPASSMOT.
+- **Plain M1025:** either buy the Q version, or at minimum run COMPASSMOT on the internal compass and reject the airframe if interference is above ~30%. Don't fly the swarm on a compass you haven't validated.
+
+### Configure the hardware
+
+1. Load `params/hardware_micoair743.parm` (all five quads), then reboot.
+2. **Motor test with props off.** The file sets `FRAME_TYPE,12` (Betaflight motor order, usual for FPV stacks). If a motor spins in the wrong position, use `FRAME_TYPE,1` or remap; if one spins the wrong direction, reverse it in the ESC configurator.
+3. Set the current scale (`BATT_AMP_PERVLT`) from the MicoAir ESC manual. Check voltage with a multimeter and current with a watt meter.
+4. Standard calibration: accelerometer, compass (see above), radio.
+5. Tune: hover, set the harmonic notch from the log, then a full AUTOTUNE. Tracking error is part of the separation budget, so a badly tuned slave is a collision risk.
+
+### Load the swarm-role parameters
 
 - **QGroundControl:** Vehicle Setup → Parameters → Tools → Load from file.
 - **Mission Planner:** Config → Full Parameter List → Load from file → Write Params.
@@ -149,14 +198,17 @@ Load `master.parm` onto the master and `slaveN.parm` onto slave N. **Label each 
 
 After loading, **reboot**. The sysid changes, so reconnect.
 
+Load order summary: `hardware_micoair743.parm` → calibrate and tune → `master.parm` or `slaveN.parm`. The role file never overwrites the calibration.
+
 ### Check these values against your hardware
 
 | Parameter | Why you must check it |
 |---|---|
 | Names that differ by version | e.g. `GPS_RATE_MS` became `GPS1_RATE_MS` in 4.6; `SYSID_MYGCS` may appear as `MAV_GCS_SYSID` in newer builds. Read the loader's "unknown parameter" list and set those by hand. |
 | `SERIAL1_BAUD` | Must equal the WiFi module's UART baud (115 = 115200, 921 = 921600) |
-| `SERIAL1_*` / `SR1_*` | If the WiFi module is on another port, rename to that port's number |
-| `SERIAL2_PROTOCOL,23` | The port the ELRS receiver is on |
+| `SERIAL1_*` / `SR1_*` | Correct for the WiFi module on UART1. Rename only if you wire it elsewhere (e.g. UART4 = SERIAL4). |
+| RC input | Nothing to set: UART6 is already the RC port (SERIAL5 on v1, SERIAL6 on v2). Never set `SERIAL2_PROTOCOL` to 23; UART2 is the HD VTX DisplayPort. |
+| `GPS_RATE_MS,200` | 5 Hz. The M10 chip can't sustain 10 Hz with all its constellations. |
 | `BATT_LOW_VOLT`, `BATT_CRT_VOLT` | Set for 6S (21.0 / 19.8 V). Change them for your pack. |
 | `FENCE_RADIUS` | Placeholders (80 m master, 110 m slaves). Set these inside your measured WiFi range after the range test. |
 
@@ -219,6 +271,8 @@ mavproxy.py --master=udpin:0.0.0.0:1456N --out udp:127.0.0.1:1457N --out udp:127
 
 ## 7. Step 5: ELRS setup
 
+**Firmware first:** flash every RP3 and both transmitters with the same ELRS major version (e.g. all 3.x). Receivers on a different major version won't connect. The RP3 has a WiFi update mode; the ExpressLRS Configurator can also set the bind phrase directly.
+
 **Pilot TX to master (normal ELRS link):**
 
 - Give it its own bind phrase, used by no other radio.
@@ -233,6 +287,12 @@ mavproxy.py --master=udpin:0.0.0.0:1456N --out udp:127.0.0.1:1457N --out udp:127
 3. Use a **fixed** TX power. Dynamic power needs telemetry, and there is none here.
 4. Handset model: ch5 switch HIGH in flight, ch6 3-pos (low = GUIDED), ch7 guarded switch for motor stop, throttle stick low.
 5. **Range-test with all four slaves powered at once.** One user found that mixing a telemetry-on receiver with telemetry-off ones sharply cut the others' range, so every slave receiver must be telemetry-off.
+
+**2.4 GHz coexistence.** The RP3 (ELRS), the WiFi telemetry and the AP all use 2.4 GHz. ELRS hops across the whole band, so no channel plan avoids it. This usually works, but it must be measured, not assumed:
+
+1. With all five drones powered and both ELRS transmitters on, run the ping test from section 6. The WiFi latency and loss must still meet the targets.
+2. Range-test ELRS with the WiFi modules transmitting.
+3. If either degrades: increase antenna spacing on the airframe first. If that isn't enough, the fixes are 900 MHz ELRS receivers (keeps WiFi on 2.4 GHz) or 5 GHz-capable WiFi modules.
 
 **Ground test of the safety TX** (props off, drones powered and disarmed): flip ch6 through its three positions. QGC must show all four slaves switch GUIDED → BRAKE → LAND together. Then return it to GUIDED.
 
@@ -349,6 +409,11 @@ If you change one side, change the other and re-run the script. `sanity_check_co
 | Slaves wobble or lag in turns | Measure the real latency and set `LINK_LATENCY_S`; slow the master; check AUTOTUNE |
 | Slaves all go to BRAKE by themselves | Safety TX ch6 not in the GUIDED position, or the safety TX is off (RC failsafe) |
 | Many "glitch" warnings | GPS desense from the WiFi module, or a poor GPS mount |
+| No RC input on the FC | RP3 wired to the SBUS pad or only one wire connected; it needs RX6 and TX6. Or ELRS major versions don't match. |
+| HD OSD stopped working | `SERIAL2_PROTOCOL` was changed; set it back to DisplayPort (42) |
+| GPS not detected | TX/RX swapped on UART3, or `SERIAL3_PROTOCOL` not 5 |
+| Slave circles in its slot | Compass interference: use the external compass only, redo COMPASSMOT |
+| Drone flips on first takeoff | Motor order: `FRAME_TYPE` wrong (12 vs 1). Always run the motor test. |
 
 ---
 
@@ -357,3 +422,13 @@ If you change one side, change the other and re-run the script. `sanity_check_co
 - `swarm_YYYYMMDD_HHMMSS.log`: the script's full debug log (in the folder you ran it from)
 - `~/swarm_logs/<date>/dN/`: MAVProxy telemetry logs (`.tlog`), one folder per drone
 - Each flight controller's dataflash `.bin` log (download with QGC or Mission Planner)
+
+---
+
+## 15. Repository and CI
+
+The `.gitignore` keeps flight logs out of the repo. They contain the GPS coordinates of where you fly, so don't force-add them.
+
+On every push, GitHub Actions runs the three mock tests in parallel (`.github/workflows/mock-tests.yml`). A red X on a commit means a change broke formation joining, the master GPS-loss failsafe, or the slave link-loss failsafe. The logs from a failed run are attached to it. A green tick means only that the logic still passes the mock: it is not a substitute for SITL and field tests.
+
+> **Safety notice:** experimental software. Flying multiple autonomous aircraft is dangerous and regulated. You are responsible for complying with local law and for operating safely. Tested so far: mock only.

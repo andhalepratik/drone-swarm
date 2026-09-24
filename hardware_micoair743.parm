@@ -1,0 +1,71 @@
+# =====================================================================
+# hardware_micoair743.parm - BASE hardware setup, identical on all 5 quads
+#
+#   Flight controller : MicoAir743 stack (v1 or v2 - check the board label
+#                       and flash the matching ArduCopter firmware:
+#                       "MicoAir743" or "MicoAir743v2")
+#   GPS               : GEPRC GEP-M1025 (u-blox M10050), on UART3
+#                       GEP-M1025Q = with QMC5883L compass on I2C (recommended)
+#   RC receiver       : RadioMaster RP3 (ELRS 2.4 GHz, CRSF), on UART6
+#   Telemetry         : WiFi module on UART1 (settings in master/slaveN.parm)
+#   Airframe          : 7-inch quad, 6S
+#
+# LOAD ORDER:  1. this file  ->  reboot  ->  calibrate (accel, compass,
+#              radio, ESC/motor test)  ->  notch + AUTOTUNE
+#              2. master.parm or slaveN.parm (the swarm role)
+# Not used by SITL (sitl_swarm.sh loads only the role files).
+# Comments are on their own lines on purpose (some loaders reject inline).
+# =====================================================================
+
+# ---- Frame ---------------------------------------------------------
+# 1 = quad
+FRAME_CLASS,1
+# 12 = BetaFlightX motor order, which FPV stacks are usually wired for.
+# Use 1 (X) if your motors are wired in ArduPilot order. VERIFY WITH THE
+# MOTOR TEST (props off) BEFORE THE FIRST FLIGHT - wrong order = flip.
+FRAME_TYPE,12
+
+# ---- Motor protocol (stack ESC) ------------------------------------
+# 5 = DShot300. No ESC calibration needed with DShot.
+MOT_PWM_TYPE,5
+
+# ---- GPS: GEP-M1025 on UART3 (SERIAL3 = GPS by board default) -------
+SERIAL3_PROTOCOL,5
+# 1 = auto-detect (finds the u-blox). ArduPilot then sets the baud and UBX
+# output itself (the module doesn't output UBX out of the box - auto-config
+# fixes that on every boot). In 4.6 the names are GPS1_TYPE, GPS1_...
+GPS_TYPE,1
+GPS_AUTO_CONFIG,1
+
+# ---- RC: RP3 on UART6 ---------------------------------------------
+# Wire RP3 TX -> FC RX6 and RP3 RX -> FC TX6 (both: CRSF is two-way).
+# UART6 is already set as RC input (SERIAL5 on v1, SERIAL6 on v2), so
+# no SERIALn_PROTOCOL line is needed here. Never touch SERIAL2 for RC:
+# UART2 is the HD VTX DisplayPort.
+# 3 = link quality / RSSI from the CRSF stream (shown in OSD and GCS)
+RSSI_TYPE,3
+
+# ---- Compass -------------------------------------------------------
+# GEP-M1025Q: its QMC5883L (I2C) should be the ONLY compass in use.
+# After compass calibration, untick the board's internal compass
+# (IST8310 on v1, QMC5883L on v2) in the GCS compass page - it sits next
+# to the ESC and power wiring. Then run COMPASSMOT.
+# Plain GEP-M1025 has NO compass: see README (hardware section).
+COMPASS_ENABLE,1
+COMPASS_AUTODEC,1
+
+# ---- Battery (6S) ---------------------------------------------------
+# 4 = analog voltage + current from the stack ESC. The board defaults set
+# the pins. Set BATT_AMP_PERVLT from the MicoAir ESC manual, then check
+# voltage against a multimeter and current against a watt meter.
+BATT_MONITOR,4
+
+# ---- Things deliberately NOT set here -------------------------------
+# INS_HNTCH_* : set from your own first hover log (throttle-based notch,
+#               or ESC-RPM if you run bidirectional DShot firmware).
+# MOT_SPIN_ARM / MOT_SPIN_MIN : find with the motor test for your motors.
+# SERIAL2 (DisplayPort) : board default is right for DJI/Walksnail/HDZero.
+#               Analog VTX: use OSD_TYPE,1 (onboard AT7456E).
+# MicoAir743v2 only: SERIAL8 is the onboard Bluetooth module (MAVLink).
+#               If you don't use it, set SERIAL8_PROTOCOL,-1 so no stray
+#               phone/app can join as a GCS.

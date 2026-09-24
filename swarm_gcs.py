@@ -6,6 +6,8 @@ swarm_gcs.py - GPS-only leader/follower formation controller
 Fleet:   1 Master (SYSID 1, flown by RC pilot or GCS waypoints)
          4 Slaves (SYSID 2..5, ArduCopter in GUIDED, commanded by this script)
 Sensors: GPS + barometer only. No proximity sensing of any kind.
+Airframe: 7-inch quads, MicoAir743 stack, GEPRC GEP-M1025 GPS, RadioMaster RP3
+          ELRS receiver, WiFi telemetry module (see README.md).
 
 Because nothing on the aircraft can *see* another aircraft, safety is layered,
 in this order of importance:

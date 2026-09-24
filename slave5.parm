@@ -2,8 +2,9 @@
 # slave5.parm  -  Swarm SLAVE, SYSID 5
 # ArduCopter 4.5.x / 4.6.x  -  load AFTER frame setup, accel/compass/
 # radio/ESC calibration, harmonic notch and AUTOTUNE are complete.
-# WiFi telemetry module is assumed on SERIAL1 (TELEM1) -> SR1_*. If it is
-# on another port, rename SERIAL1_/SR1_ to that port number.
+# Hardware: MicoAir743 (v1 or v2) stack, GEPRC GEP-M1025(Q) GPS on UART3,
+# RadioMaster RP3 ELRS receiver on UART6, WiFi module on UART1 (SERIAL1).
+# Load hardware_micoair743.parm FIRST (during the build), this file LAST.
 # Names drift between releases: after loading, check the GCS report of
 # unrecognised parameters (e.g. GPS_RATE_MS became GPS1_RATE_MS in 4.6,
 # SYSID_MYGCS may appear as MAV_GCS_SYSID in newer firmware).
@@ -19,6 +20,7 @@ SYSID_THISMAV,5
 SYSID_MYGCS,250
 
 # ---- Telemetry port + stream rates (Hz) --------------------------
+# MicoAir743 UART1 = SERIAL1 (MAVLink2 by default) -> WiFi module
 SERIAL1_PROTOCOL,2
 # MUST match the WiFi module's UART baud (115 = 115200, 921 = 921600)
 SERIAL1_BAUD,115
@@ -35,7 +37,7 @@ SR1_PARAMS,10
 
 # ---- GPS / EKF: GPS + baro only ------------------------------------
 GPS_AUTO_CONFIG,1
-# 5 Hz; 100 (10 Hz) only if your module sustains it with all constellations
+# 5 Hz. The M10 (u-blox M10050) can't hold 10 Hz with 4 constellations.
 GPS_RATE_MS,200
 # stricter than default 140 -> won't arm on a mediocre fix
 GPS_HDOP_GOOD,120
@@ -106,8 +108,8 @@ FENCE_RADIUS,110
 FENCE_ACTION,1
 
 # ---- ELRS receiver (bound to the shared SAFETY TX, telemetry ratio OFF) ----
-# CRSF on the UART the ELRS RX is wired to. Change 2 if it's elsewhere.
-SERIAL2_PROTOCOL,23
+# RP3 on UART6 (RX6 AND TX6). Board default RC input - nothing to set.
+# Do NOT set SERIAL2_PROTOCOL - UART2 is the HD VTX DisplayPort.
 RSSI_TYPE,3
 
 # ---- Safety transmitter switches -----------------------------------

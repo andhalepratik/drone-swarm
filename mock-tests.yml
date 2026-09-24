@@ -1,0 +1,36 @@
+# Runs the mock bench tests on every push and pull request.
+# A red X on a commit means a change broke formation joining, the master
+# GPS-loss failsafe, or the slave link-loss failsafe.
+name: mock-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [nominal, gps, link]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install pymavlink
+      - name: Syntax check
+        run: python -m py_compile swarm_gcs.py mock_fleet.py run_mock_tests.py
+      - name: Run mock test (${{ matrix.test }})
+        run: python run_mock_tests.py ${{ matrix.test }}
+      - name: Keep logs if it failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.test }}
+          path: |
+            ctrl_*.log
+            mock_*.out
